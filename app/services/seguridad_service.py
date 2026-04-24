@@ -5,42 +5,46 @@ class SeguridadService:
 
     @staticmethod
     def solicitar_acceso(nombre_dispositivo):
-        """
-        El celular envía su nombre (ej: 'Celular de Persona B').
-        Se crea un token temporal en estado 'PENDIENTE'.
-        """
-        # Generamos un identificador único aleatorio
+        """El celular solicita entrar. Se crea token sin usuario (NULL)."""
         token_uuid = str(uuid.uuid4())
-        
         nuevo_acceso = TokenAcceso(
             token=token_uuid,
             dispositivo=nombre_dispositivo,
-            # Por ahora no tiene usuario_id hasta que el admin lo apruebe
-            # Nota: Deberás ajustar el modelo para que usuario_id sea nullable 
-            # o manejar un usuario temporal 'PENDIENTE'
+            usuario_id=None  # Estado: PENDIENTE
         )
-        
         db.session.add(nuevo_acceso)
         db.session.commit()
         return token_uuid
 
     @staticmethod
-    def aprobar_acceso(token_recibido, id_usuario_asignado):
-        """
-        Esta función la ejecutará el panel de Tkinter.
-        Vincula el token con un trabajador real (Persona A, B o C).
-        """
-        acceso = TokenAcceso.query.filter_by(token=token_recibido).first()
+    def crear_usuario(nombre, rol, admin_id=0):
+        """Crea un trabajador y audita quién lo hizo."""
+        nuevo_usuario = Usuario(nombre=nombre, rol=rol)
+        db.session.add(nuevo_usuario)
+        db.session.flush() # Para obtener el ID antes del commit
         
+        log = Auditoria(
+            usuario_id=admin_id, # ID 0 o ID del Admin
+            accion="CREAR_USUARIO",
+            tabla_afectada="usuarios",
+            registro_id=nuevo_usuario.id
+        )
+        db.session.add(log)
+        db.session.commit()
+        return nuevo_usuario
+
+    @staticmethod
+    def aprobar_acceso(token_recibido, id_usuario_asignado, admin_id=0):
+        """Vincula el token a un usuario y registra la autorización."""
+        acceso = TokenAcceso.query.filter_by(token=token_recibido).first()
         if not acceso:
             return {"error": "Token no encontrado"}, 404
             
         acceso.usuario_id = id_usuario_asignado
         
-        # Opcional: Registrar en auditoría quién autorizó
         log = Auditoria(
-            usuario_id=id_usuario_asignado,
-            accion="DISPOSITIVO_AUTORIZADO",
+            usuario_id=admin_id,
+            accion="AUTORIZAR_DISPOSITIVO",
             tabla_afectada="tokens_acceso",
             registro_id=acceso.id
         )
@@ -50,11 +54,33 @@ class SeguridadService:
 
     @staticmethod
     def validar_token(token_a_verificar):
-        """
-        Se usa en cada petición de la API para saber quién está operando.
-        """
+        """Valida token, existencia de usuario y que no esté bloqueado."""
         acceso = TokenAcceso.query.filter_by(token=token_a_verificar).first()
         
-        if acceso and acceso.usuario_id:
-            return acceso.usuario_id # Retorna el ID del trabajador (A, B o C)
+        if not acceso or not acceso.usuario_id:
+            return None # No existe o no ha sido aprobado
+            
+        usuario = Usuario.query.get(acceso.usuario_id)
+        
+        # Validamos que el usuario exista y esté ACTIVO
+        if usuario and usuario.activo:
+            return usuario
+            
         return None
+
+    @staticmethod
+    def cambiar_estado_usuario(usuario_id, estado=False, admin_id=0):
+        """Bloquea o activa un usuario sin borrarlo."""
+        usuario = Usuario.query.get(usuario_id)
+        if usuario:
+            usuario.activo = estado
+            log = Auditoria(
+                usuario_id=admin_id,
+                accion="BLOQUEAR_USUARIO" if not estado else "ACTIVAR_USUARIO",
+                tabla_afectada="usuarios",
+                registro_id=usuario.id
+            )
+            db.session.add(log)
+            db.session.commit()
+            return True
+        return False
