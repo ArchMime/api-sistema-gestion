@@ -1,40 +1,42 @@
 from flask import Blueprint, request, jsonify
 from app.services.caja_service import CajaService
-from app.models.caja import Caja
-from datetime import datetime
 
 caja_bp = Blueprint('caja', __name__)
 
 @caja_bp.route('/estado', methods=['GET'])
 def consultar_estado():
-    """Verifica si la caja de hoy está abierta y devuelve el resumen actual."""
-    fecha_hoy = datetime.now().strftime("%d-%m-%Y")
-    caja = Caja.query.filter_by(fecha=fecha_hoy).first()
-    
-    if not caja:
-        return jsonify({"estado": "NO_INICIADA"}), 200
-        
-    return jsonify({
-        "id_caja": caja.id_caja,
-        "estado": caja.estado_caja,
-        "saldo_inicial": caja.saldo_inicial,
-        "fecha": caja.fecha
-    }), 200
+    """
+    Verifica el estado actual de la caja.
+    Retorna si está LIBRE, BLOQUEADO (abierta) o EXISTENTE (cerrada pero de hoy).
+    """
+    resultado, status = CajaService.verificar_estado_diario()
+    return jsonify(resultado), status
 
 @caja_bp.route('/abrir', methods=['POST'])
 def abrir():
-    """Apertura de caja diaria."""
+    """Apertura de caja con lógica de forzado opcional."""
     datos = request.get_json()
-    # id_usuario es obligatorio para saber quién abrió
+    # id_usuario vendría del token en una implementación real
     resultado, status = CajaService.abrir_caja(
         id_usuario=datos.get('id_usuario'),
-        monto_inicial=datos.get('monto_inicial', 0)
+        monto_inicial=datos.get('monto_inicial', 0),
+        forzar_nueva=datos.get('forzar_nueva', False)
+    )
+    return jsonify(resultado), status
+
+@caja_bp.route('/reabrir', methods=['POST'])
+def reabrir():
+    """Reabre una caja cerrada para ajustes."""
+    datos = request.get_json()
+    resultado, status = CajaService.reabrir_caja(
+        id_usuario=datos.get('id_usuario'),
+        id_caja=datos.get('id_caja')
     )
     return jsonify(resultado), status
 
 @caja_bp.route('/egreso', methods=['POST'])
 def registrar_egreso():
-    """Registro de gastos (pan, gas, propinas, etc.)."""
+    """Registro de gastos vinculado a la caja activa."""
     datos = request.get_json()
     resultado, status = CajaService.registrar_egreso(
         id_usuario=datos.get('id_usuario'),
@@ -46,7 +48,7 @@ def registrar_egreso():
 
 @caja_bp.route('/cerrar', methods=['POST'])
 def cerrar():
-    """Cierre de caja con cuadratura."""
+    """Cierre de caja con cuadratura automática."""
     datos = request.get_json()
     resultado, status = CajaService.cerrar_caja(
         id_usuario=datos.get('id_usuario'),
@@ -55,14 +57,8 @@ def cerrar():
     )
     return jsonify(resultado), status
 
-@caja_bp.route('/corregir', methods=['PUT'])
-def corregir():
-    """Corrección de error humano en el conteo final."""
-    datos = request.get_json()
-    resultado, status = CajaService.corregir_cierre_caja(
-        id_usuario=datos.get('id_usuario'),
-        id_caja=datos.get('id_caja'),
-        nuevo_efectivo_fisico=datos.get('nuevo_efectivo_fisico'),
-        motivo=datos.get('motivo')
-    )
+@caja_bp.route('/historial', methods=['GET'])
+def listar_historial():
+    """Lista todas las cajas para el panel de informes del administrador."""
+    resultado, status = CajaService.listar_cajas_admin()
     return jsonify(resultado), status
