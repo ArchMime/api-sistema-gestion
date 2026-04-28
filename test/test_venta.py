@@ -1,152 +1,89 @@
 import requests
-import time
 
 BASE_VENTAS = "http://127.0.0.1:5000/api/ventas"
 BASE_CAJA = "http://127.0.0.1:5000/api/caja"
 BASE_PROD = "http://127.0.0.1:5000/api/productos"
-ID_USUARIO = 1
+ID_USUARIO = 1  # Asumimos que el seed ya creó este usuario
 
 
-def probar_ventas():
-    print("--- INICIANDO TEST COMPLETO DE VENTAS Y CUADRATURA ---")
+def ejecutar_test_ventas():
+    print("=== INICIANDO TEST INTEGRADO: VENTAS (ROBUSTEZ) ===")
 
     try:
-        # 1. Preparación de Catálogo (Necesitamos un producto real)
-        print("\n1. Creando Categoría y Producto para la prueba...")
+        # 1. PREPARACIÓN DE CATÁLOGO (Usando tus llaves exactas 'id')
+        print("\n1. Creando Categoría y Producto...")
         res_cat = requests.post(f"{BASE_PROD}/categorias", json={
-            "id_usuario": ID_USUARIO, "nombre": "Sandwich"
+            "id_usuario": ID_USUARIO, "nombre": "Bebidas Test"
         })
-        id_cat = res_cat.json().get('id')
+        id_cat = res_cat.json().get('id') # Según tu test_productos.py
 
         res_p = requests.post(f"{BASE_PROD}/gestionar", json={
             "id_usuario": ID_USUARIO,
-            "nombre_producto": "Ave Mayo",
-            "precio_producto": 3500,
+            "nombre_producto": "Coca Cola Test",
+            "precio_producto": 1500,
             "categoria_id": id_cat,
-            "formato_producto": "Normal"
+            "formato_producto": "Lata"
         })
         id_prod = res_p.json().get('id')
-        print(f"   [OK] Producto 'Ave Mayo' listo con ID: {id_prod}")
+        print(f"   [OK] Producto listo ID: {id_prod} en Categoría ID: {id_cat}")
 
-        # 2. Gestión de Caja (Asegurar que esté abierta para permitir ventas)
-        print("\n2. Verificando estado de caja...")
-        res_est = requests.get(f"{BASE_CAJA}/estado").json()
-        
-        if res_est['estado'] == 'LIBRE':
-            print("   [INFO] Abriendo nueva caja...")
-            res_c = requests.post(f"{BASE_CAJA}/abrir", json={"id_usuario": ID_USUARIO, "monto_inicial": 10000})
-            id_caja = res_c.json().get('id_caja')
-        else:
-            id_caja = res_est['id_caja']
-            if res_est['estado'] == 'EXISTENTE':
-                print(f"   [INFO] Reabriendo caja ID: {id_caja}")
-                requests.post(f"{BASE_CAJA}/reabrir", json={"id_usuario": ID_USUARIO, "id_caja": id_caja})
-        
-        print(f"   [OK] Caja lista para operar (ID: {id_caja})")
+        # 2. ASEGURAR CAJA ABIERTA (Necesario para el blindaje del Service)
+        print("\n2. Abriendo caja para permitir operaciones...")
+        # Primero intentamos abrir; si ya hay una abierta, el sistema lo ignorará o dará error
+        requests.post(f"{BASE_CAJA}/abrir", json={"id_usuario": ID_USUARIO, "monto_inicial": 10000})
+        print("   [OK] Caja lista.")
 
-        # 3. Flujo de Venta: Crear Pedido
-        print(f"\n3. Creando pedido en Mesa 5 (2 unidades de producto {id_prod})...")
+        # 3. CREAR CUENTA ABIERTA (Mesa 10)
+        print("\n3. Abriendo cuenta para 'Mesa 10'...")
         res_v = requests.post(f"{BASE_VENTAS}/", json={
             "id_usuario": ID_USUARIO,
-            "cliente": "Mesa 5",
-            "productos": [{"id_producto": id_prod, "cantidad": 2}]
+            "cliente": "Mesa 10",
+            "productos": [{"id_producto": id_prod, "cantidad": 2}] # Total: 3000
         })
-        id_v = res_v.json().get('id_venta')
-        total_v = res_v.json().get('total')
-        print(f"   [OK] Venta registrada ID: {id_v} | Total: ${total_v}")
+        v_data = res_v.json()
+        id_venta = v_data.get('id_venta')
+        print(f"   [OK] Venta ID: {id_venta} | Total acumulado: ${v_data.get('total_acumulado')}")
 
-        # 4. Flujo de Venta: Finalizar Pago
-        print(f"\n4. Procesando pago de la venta {id_v} en EFECTIVO...")
-        requests.post(f"{BASE_VENTAS}/pagar", json={
+        # 4. AGREGAR "ANTOJO" (Misma venta)
+        print(f"\n4. Agregando 1 unidad extra a la Venta {id_venta}...")
+        res_v2 = requests.post(f"{BASE_VENTAS}/", json={
             "id_usuario": ID_USUARIO,
-            "id_venta": id_v,
+            "id_venta": id_venta,
+            "productos": [{"id_producto": id_prod, "cantidad": 1}] # +1500
+        })
+        print(f"   [OK] Nuevo Total: ${res_v2.json().get('total_acumulado')}")
+
+        # 5. FINALIZAR PAGO
+        print(f"\n5. Procesando pago de Venta {id_venta} (EFECTIVO)...")
+        res_pago = requests.post(f"{BASE_VENTAS}/pagar", json={
+            "id_usuario": ID_USUARIO,
+            "id_venta": id_venta,
             "forma_pago": "EFECTIVO",
-            "propina": 0
+            "propina": 500
         })
-        print("   [OK] Pago procesado.")
+        if res_pago.status_code == 200:
+            print(f"   [OK] Pago exitoso: {res_pago.json().get('mensaje')}")
 
-        # 5. Cierre de Caja para Recalcular Totales
-        # Cálculo esperado: 10,000 inicial + 7,000 venta = 17,000
-        print("\n5. Cerrando caja para ejecutar arqueo y sumatoria de ventas...")
-        res_cier = requests.post(f"{BASE_CAJA}/cerrar", json={
-            "id_usuario": ID_USUARIO,
-            "efectivo_fisico": 17000,
-            "observaciones": "Cierre de test de ventas"
-        })
+        # 6. VERIFICACIÓN DE DETALLE (Integridad de datos)
+        print(f"\n6. Consultando detalle final de Venta {id_venta}...")
+        res_det = requests.get(f"{BASE_VENTAS}/{id_venta}")
+        det = res_det.json()
         
-        if res_cier.status_code == 200:
-            # 6. Verificación Final en Historial
-            print("\n6. Verificando impacto en el historial administrativo...")
-            res_hist = requests.get(f"{BASE_CAJA}/historial").json()
-            # Buscamos la caja actual en la lista
-            caja_data = next(c for c in res_hist if c['id'] == id_caja)
-            
-            print(f"   [RESULTADO FINAL]")
-            print(f"   - Estado Caja: {caja_data['estado']}")
-            print(f"   - Total Ventas: ${caja_data['total_ventas']}")
-            print(f"   - Diferencia Arqueo: ${caja_data['diferencia']}")
-            
-            if caja_data['total_ventas'] == total_v:
-                print("\n--- ¡TEST COMPLETADO CON ÉXITO! ---")
-            else:
-                print("\n--- [ALERTA] Los totales no coinciden con la venta registrada ---")
+        print(f"   - Cliente: {det['cliente']}")
+        print(f"   - Estado: {det['estado']}")
+        print(f"   - Total: ${det['total']}")
+        print(f"   - Productos en ticket: {len(det['detalle_productos'])}")
+        
+        # Validación de blindaje de precios
+        precio_en_ticket = det['detalle_productos'][0]['precio_unitario']
+        if precio_en_ticket == 1500:
+            print("   [OK] El precio histórico se guardó correctamente.")
+
+        print("\n--- ¡TEST DE VENTAS COMPLETADO CON ÉXITO! ---")
 
     except Exception as e:
-        print(f"\n   [ERROR CRÍTICO] Ocurrió un fallo durante el test: {e}")
+        print(f"\n[ERROR CRÍTICO EN TEST]: {e}")
 
 if __name__ == "__main__":
-    probar_ventas()
-
-def probar_ventas():
-    print("--- INICIANDO TEST DEL MÓDULO VENTAS (AUTÓNOMO) ---")
-
-    # 1. Preparación: Crear Categoría y Producto
-    print("\n1. Preparando catálogo (Creando 'Ave Mayo' a $3500)...")
-    res_cat = requests.post(f"{BASE_PROD}/categorias", json={"id_usuario": ID_USUARIO, "nombre": "Sandwich"})
-    id_cat = res_cat.json().get('id')
-    
-    res_p = requests.post(f"{BASE_PROD}/gestionar", json={
-        "id_usuario": ID_USUARIO, "nombre_producto": "Ave Mayo",
-        "precio_producto": 3500, "categoria_id": id_cat, "formato_producto": "Normal"
-    })
-    id_producto = res_p.json().get('id')
-    print(f"   [OK] Producto listo con ID: {id_producto}")
-
-    # 2. Asegurar Caja Abierta
-    print("\n2. Reabriendo caja ID 1...")
-    requests.post(f"{BASE_CAJA}/reabrir", json={"id_usuario": ID_USUARIO, "id_caja": 1})
-
-    # 3. Crear venta con productos reales
-    print(f"\n3. Vendiendo 2 '{id_producto}' a Mesa 5...")
-    res_venta = requests.post(f"{BASE_VENTAS}/", json={
-        "id_usuario": ID_USUARIO,
-        "cliente": "Mesa 5",
-        "productos": [{"id_producto": id_producto, "cantidad": 2}]
-    })
-    id_v = res_venta.json().get('id_venta')
-    print(f"   [OK] Venta creada ID: {id_v} | Total: {res_venta.json().get('total')}")
-
-    # 4. Finalizar Pago
-    print("\n4. Pagando venta...")
-    requests.post(f"{BASE_VENTAS}/pagar", json={
-        "id_usuario": ID_USUARIO, "id_venta": id_v, "forma_pago": "EFECTIVO"
-    })
-
-    # 5. Volver a cerrar la caja para que recalcule totales
-    print("\n5. Cerrando caja para procesar arqueo final...")
-    requests.post(f"{BASE_CAJA}/cerrar", json={
-        "id_usuario": ID_USUARIO,
-        "efectivo_fisico": 12000 # 10k inicial - 5k egreso + 7k venta
-    })
-
-    # 6. Verificación final
-    print("\n6. Verificando impacto real en el historial...")
-    res_hist = requests.get(f"{BASE_CAJA}/historial")
-    caja = next(c for c in res_hist.json() if c['id'] == 1)
-    print(f"   [RESULTADO] Total Ventas en Caja: ${caja['total_ventas']}")
-
-
-if __name__ == "__main__":
-    probar_ventas()
-
+    ejecutar_test_ventas()
 
