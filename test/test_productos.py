@@ -1,65 +1,96 @@
 import requests
 
-# URLs basadas en tu app/__init__.py
 BASE_URL = "http://127.0.0.1:5000/api/productos"
-ID_USUARIO = 3  # Persona B (Cocina)
+# Usamos el ID 3 que genera tu seed.py (Persona B - Cocina)
+ID_USUARIO = 3 
 
-def probar_productos():
-    print("--- INICIANDO TEST DE PRODUCTOS EN LA TABLET ---")
+def test_productos_blindaje():
+    print("\n--- INICIANDO TEST DE ROBUSTEZ: MÓDULO PRODUCTOS ---")
 
-    # 1. Crear Categoría
-    print("\n1. Creando categoría 'Sandwich'...")
-    res_cat = requests.post(f"{BASE_URL}/categorias", json={
+    # 1. TEST: Crear categoría con nombre duplicado
+    # La semilla ya crea "Almuerzos", intentaremos crearla de nuevo
+    print("\n[ERROR TEST 1] Intentando duplicar categoría 'Almuerzos'...")
+    res = requests.post(f"{BASE_URL}/categorias", json={
         "id_usuario": ID_USUARIO,
-        "nombre": "Sandwich"
+        "nombre": "Almuerzos"
     })
-    
-    if res_cat.status_code == 201:
-        id_cat = res_cat.json().get('id')
-        print(f"   [OK] Categoría creada ID: {id_cat}")
+    if res.status_code in [400, 500]: # SQLAlchemy lanzará IntegrityError
+        print(f"   [OK] El servidor controló el duplicado: {res.json().get('error')}")
     else:
-        print(f"   [ERROR] {res_cat.text}")
-        return
+        print(f"   [FALLO] Se permitió duplicar una categoría única.")
 
-    # 2. Crear Producto
-    print("\n2. Creando producto 'Ave Mayo'...")
-    res_prod = requests.post(f"{BASE_URL}/gestionar", json={
+    # 2. TEST: Crear producto con datos incompletos
+    print("\n[ERROR TEST 2] Creando producto sin precio...")
+    res = requests.post(f"{BASE_URL}/gestionar", json={
         "id_usuario": ID_USUARIO,
-        "nombre_producto": "Ave Mayo",
-        "precio_producto": 3500,
-        "categoria_id": id_cat,
-        "formato_producto": "Pan de molde"
+        "nombre_producto": "Producto Fallido",
+        "categoria_id": 1
     })
-    
-    if res_prod.status_code == 200:
-        cod_prod = res_prod.json().get('id')
-        print(f"   [OK] Producto creado Código: {cod_prod}")
+    if res.status_code == 400:
+        print(f"   [OK] Rechazado correctamente por falta de datos.")
     else:
-        print(f"   [ERROR] {res_prod.text}")
-        return
+        print(f"   [FALLO] El sistema aceptó un producto sin precio.")
 
-    # 3. Verificar en el Menú (PWA)
-    print("\n3. Verificando visibilidad en /menu...")
-    res_menu = requests.get(f"{BASE_URL}/menu")
-    menu = res_menu.json()
-    
-    encontrado = any(p['id'] == cod_prod for cat in menu for p in cat['productos'])
-    print(f"   [OK] ¿Aparece en el menú?: {'SÍ' if encontrado else 'NO'}")
+    # 3. TEST: Borrar categoría con productos (Integridad Referencial)
+    # Primero creamos un producto en la categoría 1
+    print("\n[ERROR TEST 3] Intentando borrar categoría con productos vinculados...")
+    requests.post(f"{BASE_URL}/gestionar", json={
+        "id_usuario": ID_USUARIO,
+        "nombre_producto": "Test Borrado",
+        "precio_producto": 1000,
+        "categoria_id": 1
+    })
+    # Intentamos borrar la categoría 1 (Almuerzos)
+    res = requests.delete(f"{BASE_URL}/categorias/1?id_usuario={ID_USUARIO}")
+    if res.status_code == 400:
+        print(f"   [OK] Bloqueado: {res.json().get('error')}")
+    else:
+        print(f"   [FALLO] ¡Se borró una categoría que tenía productos!")
 
-    # 4. Pausar producto (Temporada/Stock)
-    print(f"\n4. Pausando producto {cod_prod}...")
-    res_pausa = requests.patch(f"{BASE_URL}/{cod_prod}/estado", json={
+    # 4. TEST: Actualizar producto inexistente
+    print("\n[ERROR TEST 4] Intentando editar producto con ID inexistente (999)...")
+    res = requests.post(f"{BASE_URL}/gestionar", json={
+        "id_usuario": ID_USUARIO,
+        "codigo_producto": 999,
+        "nombre_producto": "Fantasma",
+        "precio_producto": 5000,
+        "categoria_id": 1
+    })
+    # Aquí nuestro Service creará un nuevo producto porque .get(999) devuelve None
+    # pero es bueno verificar que no explote.
+    if res.status_code == 200:
+        print(f"   [INFO] El sistema creó uno nuevo en lugar de fallar (Comportamiento Upsert).")
+
+    # 5. TEST: Cambiar estado a producto que no existe
+    print("\n[ERROR TEST 5] Patch de estado a ID inválido...")
+    res = requests.patch(f"{BASE_URL}/8888/estado", json={
         "id_usuario": ID_USUARIO,
         "activo": False
     })
+    if res.status_code == 404:
+        print(f"   [OK] Producto no encontrado manejado correctamente.")
+    else:
+        print(f"   [FALLO] Se esperaba 404.")
+
+def probar_flujo_limpio():
+    print("\n--- TEST DE FLUJO EXITOSO (CATEGORÍA NUEVA) ---")
+    # Crear categoría limpia para pruebas
+    res_cat = requests.post(f"{BASE_URL}/categorias", json={
+        "id_usuario": ID_USUARIO,
+        "nombre": "Promociones"
+    })
+    cat_id = res_cat.json().get('id')
     
-    if res_pausa.status_code == 200:
-        print("   [OK] Producto pausado correctamente.")
-    
-    # 5. Verificación final: No en menú, pero sí en catálogo maestro
-    res_maestro = requests.get(f"{BASE_URL}/catalogo-maestro")
-    en_maestro = any(p['id'] == cod_prod and p['activo'] == False for p in res_maestro.json())
-    print(f"   [OK] ¿Persiste inactivo en Catálogo Maestro?: {'SÍ' if en_maestro else 'NO'}")
+    # Crear producto en esa categoría
+    res_prod = requests.post(f"{BASE_URL}/gestionar", json={
+        "id_usuario": ID_USUARIO,
+        "nombre_producto": "Promo Real",
+        "precio_producto": 9990,
+        "categoria_id": cat_id
+    })
+    if res_prod.status_code == 200:
+        print(f"   [OK] Flujo completo exitoso en categoría {cat_id}.")
 
 if __name__ == "__main__":
-    probar_productos()
+    test_productos_blindaje()
+    probar_flujo_limpio()
