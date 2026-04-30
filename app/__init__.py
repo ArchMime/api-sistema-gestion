@@ -23,6 +23,8 @@ def create_app():
     from app.controllers.producto_controller import producto_bp
     from app.controllers.caja_controller import caja_bp
     from app.controllers.auth_controller import auth_bp
+    from app.controllers.config_controller import config_bp
+    app.register_blueprint(config_bp, url_prefix='/api/configuracion')
 
     # Registro de rutas con prefijo /api
     app.register_blueprint(venta_bp, url_prefix='/api/ventas')
