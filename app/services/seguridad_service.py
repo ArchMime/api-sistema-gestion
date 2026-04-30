@@ -24,7 +24,7 @@ class SeguridadService:
             return None
 
     @staticmethod
-    def crear_usuario(nombre, rol, admin_id=0):
+    def crear_usuario(nombre, rol, admin_id=1):
         """Crea un trabajador y audita quién lo hizo con protección de duplicados."""
         try:
             nuevo_usuario = Usuario(nombre=nombre, rol=rol)

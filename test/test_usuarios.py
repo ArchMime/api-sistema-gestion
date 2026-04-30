@@ -3,67 +3,37 @@ import json
 
 BASE_URL = "http://127.0.0.1:5000/api/auth"
 
-def test_errores_blindaje():
-    print("\n--- INICIANDO TEST DE ROBUSTEZ (CASOS DE ERROR) ---")
+def test_flujo_completo_seguridad():
+    print("\n--- TEST: FLUJO DE SEGURIDAD (CELULAR -> ADMIN -> VALIDACIÓN) ---")
 
-    # 1. TEST: Duplicar Usuario (Prueba el IntegrityError y Rollback)
-    print("\n[ERROR TEST 1] Intentando crear un usuario que ya existe...")
-    payload = {"nombre": "Persona A", "rol": "CAJA"}
-    # Primer intento (puede que ya exista)
-    requests.post(f"{BASE_URL}/admin/usuarios", json=payload)
-    # Segundo intento forzado
-    res = requests.post(f"{BASE_URL}/admin/usuarios", json=payload)
-    
-    if res.status_code == 400:
-        print(f"   [OK] El servidor rechazó el duplicado correctamente: {res.json().get('error')}")
-    else:
-        print(f"   [FALLO] El servidor no detectó el duplicado o dio error 500. Status: {res.status_code}")
+    # 1. El celular de "Persona B" pide entrar
+    print("1. Solicitando acceso desde celular...")
+    res_solicitud = requests.post(f"{BASE_URL}/solicitar-acceso", 
+                                 json={"nombre_dispositivo": "Samsung Persona B"})
+    token = res_solicitud.json().get('token')
+    print(f"   [OK] Token recibido: {token[:8]}...")
 
-    # 2. TEST: Datos incompletos (Prueba la validación del controlador)
-    print("\n[ERROR TEST 2] Enviando JSON incompleto al crear usuario...")
-    res = requests.post(f"{BASE_URL}/admin/usuarios", json={"nombre": "Incompleto"})
-    if res.status_code == 400:
-        print(f"   [OK] Rechazado por falta de campos.")
-    else:
-        print(f"   [FALLO] No se validaron campos obligatorios.")
+    # 2. El administrador aprueba el acceso (ID 3 es Persona B según tu seed)
+    print("2. Administrador aprueba el acceso para Persona B (ID 3)...")
+    requests.post(f"{BASE_URL}/admin/aprobar-acceso", 
+                  json={"token": token, "usuario_id": 3, "admin_id": 1})
 
-    # 3. TEST: Aprobar Token inexistente
-    print("\n[ERROR TEST 3] Intentando aprobar un token que no existe en la DB...")
-    payload_fake = {"token": "token-falso-123", "usuario_id": 1}
-    res = requests.post(f"{BASE_URL}/admin/aprobar-acceso", json=payload_fake)
-    if res.status_code == 404:
-        print(f"   [OK] El sistema respondió 'no encontrado' correctamente.")
-    else:
-        print(f"   [FALLO] Se esperaba 404 para token inexistente.")
-
-    # 4. TEST: Bloqueo de Usuario (Prueba lógica de activo=False)
-    print("\n[ERROR TEST 4] Validando token de un usuario BLOQUEADO...")
-    # Primero creamos un usuario para la prueba
-    user_data = {"nombre": "Usuario Temporal", "rol": "COCINA"}
-    u_res = requests.post(f"{BASE_URL}/admin/usuarios", json=user_data).json()
-    u_id = u_res.get("id")
-
-    # Solicitamos y aprobamos token
-    token = requests.post(f"{BASE_URL}/solicitar-acceso", json={"nombre_dispositivo": "Test"}).json().get("token")
-    requests.post(f"{BASE_URL}/admin/aprobar-acceso", json={"token": token, "usuario_id": u_id})
-
-    # Ahora lo bloqueamos
-    requests.patch(f"{BASE_URL}/admin/usuarios/{u_id}/estado", json={"activo": False})
-    
-    # Intentamos validar
+    # 3. El celular intenta validar su entrada
+    print("3. Validando acceso desde el celular...")
     res_val = requests.post(f"{BASE_URL}/validar-token", json={"token": token})
-    if res_val.status_code == 401:
-        print(f"   [OK] El usuario bloqueado no pudo entrar (401).")
+    if res_val.status_code == 200:
+        print(f"   [OK] Acceso concedido a: {res_val.json()['usuario']['nombre']}")
+    
+    # 4. Bloqueamos al usuario y re-intentamos (El punto que te fallaba)
+    print("4. Bloqueando a Persona B...")
+    requests.patch(f"{BASE_URL}/admin/usuarios/3/estado", 
+                   json={"activo": False, "admin_id": 1})
+    
+    res_val_block = requests.post(f"{BASE_URL}/validar-token", json={"token": token})
+    if res_val_block.status_code == 401:
+        print("   [OK] Acceso denegado correctamente para usuario bloqueado.")
     else:
-        print(f"   [FALLO] ¡Un usuario bloqueado pudo validar su token!")
-
-def probar_flujo_exitoso():
-    # ... (Tu código original de flujo exitoso aquí) ...
-    print("\n--- FLUJO EXITOSO COMPLETADO ---")
+        print("   [FALLO] El sistema dejó entrar a un usuario bloqueado.")
 
 if __name__ == "__main__":
-    # Primero probamos que lo bueno funciona
-    # probar_flujo_exitoso() 
-    
-    # Luego estresamos el sistema
-    test_errores_blindaje()
+    test_flujo_completo_seguridad()

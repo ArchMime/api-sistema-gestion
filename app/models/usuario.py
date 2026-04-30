@@ -22,7 +22,7 @@ class TokenAcceso(db.Model):
     # <--- CAMBIO: nullable=True permite que el token exista antes de ser asignado a un usuario
     usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True)
     
-    fecha_creacion = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha_creacion = db.Column(db.DateTime, default=datetime.now)
 
 class Auditoria(db.Model):
     __tablename__ = 'auditoria'

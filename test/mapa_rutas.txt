@@ -1,0 +1,99 @@
+==========================================================
+SISTEMA DE GESTIÓN: MAPA DE RUTAS API (REST)
+==========================================================
+
+[ MÓDULO: USUARIOS Y AUTENTICACIÓN ]
+----------------------------------------------------------
+POST   /api/auth/solicitar-acceso
+       - Propósito: El celular (PWA) pide un token para entrar.
+       - Body JSON: { "nombre_dispositivo": "Samsung A50" }
+
+POST   /api/auth/validar-token
+       - Propósito: Verifica si un dispositivo está autorizado y quién lo usa.
+       - Body JSON: { "token": "uuid-aqui" }
+
+POST   /api/auth/admin/aprobar-acceso
+       - Propósito: Vincula un token a un usuario específico (Solo Admin).
+       - Body JSON: { "token": "uuid", "usuario_id": 3, "admin_id": 1 }
+
+POST   /api/auth/admin/usuarios
+       - Propósito: Crea un nuevo trabajador.
+       - Body JSON: { "nombre": "Persona D", "rol": "CAJA", "admin_id": 1 }
+
+PATCH  /api/auth/admin/usuarios/<id>/estado
+       - Propósito: Bloquea o activa un usuario.
+       - Body JSON: { "activo": false, "admin_id": 1 }
+
+
+[ MÓDULO: CAJA Y EGRESOS ]
+----------------------------------------------------------
+GET    /api/caja/estado
+       - Propósito: Saber si la caja está LIBRE, ABIERTA o EXISTENTE hoy.
+
+POST   /api/caja/abrir
+       - Propósito: Iniciar jornada con saldo base.
+       - Body JSON: { "id_usuario": 1, "monto_inicial": 5000 }
+
+POST   /api/caja/reabrir
+       - Propósito: Volver a abrir una caja cerrada por error.
+       - Body JSON: { "id_usuario": 1, "id_caja": 5 }
+
+POST   /api/caja/egreso
+       - Propósito: Sacar dinero para compras o gastos.
+       - Body JSON: { "id_usuario": 1, "monto": 1000, "descripcion": "Pan", "categoria": "INSUMOS" }
+
+POST   /api/caja/cerrar
+       - Propósito: Finalizar jornada y calcular diferencia.
+       - Body JSON: { "id_usuario": 1, "efectivo_fisico": 15000, "observaciones": "" }
+
+GET    /api/caja/historial
+       - Propósito: Ver cierres anteriores para el panel admin.
+
+
+[ MÓDULO: PRODUCTOS Y CATEGORÍAS ]
+----------------------------------------------------------
+GET    /api/productos/menu
+       - Propósito: Lista rápida para la PWA (Solo productos activos).
+
+GET    /api/productos/catalogo-maestro
+       - Propósito: Lista completa para el administrador.
+
+POST   /api/productos/gestionar
+       - Propósito: Crear o Editar un producto (Upsert).
+       - Body JSON: { "id_usuario": 1, "codigo_producto": null, "nombre_producto": "Pizza", 
+                      "precio_producto": 5000, "categoria_id": 1 }
+
+PATCH  /api/productos/<codigo>/estado
+       - Propósito: Ocultar/Mostrar producto del menú.
+       - Body JSON: { "id_usuario": 1, "activo": true }
+
+GET    /api/productos/categorias
+       - Propósito: Listar todas las categorías.
+
+POST   /api/productos/categorias
+       - Propósito: Crear o editar categoría.
+       - Body JSON: { "id_usuario": 1, "nombre": "Postres" }
+
+
+[ MÓDULO: VENTAS Y PEDIDOS ]
+----------------------------------------------------------
+POST   /api/ventas/
+       - Propósito: Crear venta o añadir productos a una cuenta abierta.
+       - Body JSON: { "id_usuario": 1, "id_venta": null, "cliente": "Mesa 4", 
+                      "productos": [{"id_producto": 1, "cantidad": 2}] }
+
+POST   /api/ventas/pagar
+       - Propósito: Cobrar la cuenta y sumar el dinero a la caja.
+       - Body JSON: { "id_usuario": 1, "id_venta": 10, "forma_pago": "EFECTIVO", "propina": 0 }
+
+PATCH  /api/ventas/<id_venta>/anular
+       - Propósito: Invalidar un pedido pendiente.
+       - Body JSON: { "id_usuario": 1, "motivo": "Error de pedido" }
+
+GET    /api/ventas/
+       - Propósito: Listar todas las ventas. Filtros: ?estado=PENDIENTE&fecha=29-04-2026
+
+GET    /api/ventas/<id_venta>
+       - Propósito: Ver ticket detallado y productos vendidos.
+
+==========================================================

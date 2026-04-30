@@ -5,46 +5,41 @@ app = create_app()
 
 def seed():
     with app.app_context():
-        # 1. Crear las tablas (si no existen)
-        print("Creando tablas en la base de datos...")
+        # 1. Resetear la base de datos
+        # Esto asegura que los IDs comiencen desde 1 y no haya basura de pruebas previas
+        print("Borrando base de datos existente...")
+        db.drop_all()
+        
+        print("Creando tablas nuevas...")
         db.create_all()
 
-        # 2. Crear el Usuario Sistema/Admin
-        # Evitamos forzar el ID 0 y buscamos por nombre para que sea seguro re-ejecutar
-        admin = Usuario.query.filter_by(nombre="SISTEMA").first()
-        if not admin:
-            # Dejamos que el ID sea autoincremental (será el 1)
-            admin = Usuario(nombre="SISTEMA", rol="ADMIN", activo=True)
-            db.session.add(admin)
-            # Commit inmediato para asegurar la existencia del admin para lo que sigue
-            db.session.commit()
-            print(f"Usuario de Sistema creado (ID asignado: {admin.id}).")
-        else:
-            print("El usuario SISTEMA ya existe.")
+        # 2. Crear el Usuario Sistema (Será ID: 1 obligatoriamente)
+        admin = Usuario(nombre="SISTEMA", rol="ADMIN", activo=True)
+        db.session.add(admin)
+        # Hacemos commit para asegurar que el ID 1 quede reservado antes de seguir
+        db.session.commit()
+        print(f"--- Usuario de Sistema creado (ID: {admin.id}) ---")
 
-        # 3. Crear Trabajadores (A, B y C)
+        # 3. Crear Trabajadores (Recibirán IDs: 2, 3 y 4)
         trabajadores = [
             {"nombre": "Persona A", "rol": "DUEÑO"},
             {"nombre": "Persona B", "rol": "COCINA"},
             {"nombre": "Persona C", "rol": "CAJA"}
         ]
 
+        print("\nCreando trabajadores...")
         for t in trabajadores:
-            if not Usuario.query.filter_by(nombre=t["nombre"]).first():
-                nuevo = Usuario(nombre=t["nombre"], rol=t["rol"], activo=True)
-                db.session.add(nuevo)
-                print(f"Usuario {t['nombre']} creado.")
-            else:
-                print(f"Usuario {t['nombre']} ya existía.")
+            nuevo = Usuario(nombre=t["nombre"], rol=t["rol"], activo=True)
+            db.session.add(nuevo)
+            print(f"Usuario {t['nombre']} añadido.")
 
-        # 4. Crear Categorías base (Parte no modificada)
+        # 4. Crear Categorías base
         categorias = ["Almuerzos", "Bebidas", "Cafetería"]
+        print("\nCreando categorías...")
         for cat_nom in categorias:
-            if not Categoria.query.filter_by(nombre=cat_nom).first():
-                db.session.add(Categoria(nombre=cat_nom))
-                print(f"Categoría {cat_nom} creada.")
-            else:
-                print(f"Categoría {cat_nom} ya existía.")
+            nueva_cat = Categoria(nombre=cat_nom)
+            db.session.add(nueva_cat)
+            print(f"Categoría {cat_nom} añadida.")
 
         # Commit final para trabajadores y categorías
         db.session.commit()

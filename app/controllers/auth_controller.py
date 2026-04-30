@@ -55,7 +55,7 @@ def aprobar():
     datos = request.get_json()
     token_uuid = datos.get('token')
     usuario_id = datos.get('usuario_id')
-    admin_id = datos.get('admin_id', 0)
+    admin_id = datos.get('admin_id', 1)
 
     if not token_uuid or not usuario_id:
         return jsonify({"error": "Datos incompletos"}), 400
@@ -68,7 +68,7 @@ def crear_usuario():
     datos = request.get_json()
     nombre = datos.get('nombre')
     rol = datos.get('rol')
-    admin_id = datos.get('admin_id', 0)
+    admin_id = datos.get('admin_id', 1)
 
     if not nombre or not rol:
         return jsonify({"error": "Nombre y rol son requeridos"}), 400
@@ -89,7 +89,7 @@ def crear_usuario():
 def cambiar_estado(id):
     datos = request.get_json()
     nuevo_estado = datos.get('activo') # True o False
-    admin_id = datos.get('admin_id', 0)
+    admin_id = datos.get('admin_id', 1)
 
     # Si 'activo' no viene en el JSON, es una solicitud mal formada
     if nuevo_estado is None:

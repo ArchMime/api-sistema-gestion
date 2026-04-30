@@ -1,74 +1,90 @@
 import requests
 
-BASE_URL = "http://127.0.0.1:5000/api/caja"
-ID_USUARIO = 1  # Administrador
+BASE_CAJA = "http://127.0.0.1:5000/api/caja"
+BASE_VENTAS = "http://127.0.0.1:5000/api/ventas"
+ID_USUARIO = 1 # Admin/Sistema
 
-def probar_caja():
-    print("--- INICIANDO TEST DEL MÓDULO CAJA ---")
+def ejecutar_test_caja():
+    print("=== INICIANDO TEST DE ROBUSTEZ: MÓDULO CAJA ===")
 
-    # 1. Verificar estado inicial (Debería estar LIBRE o EXISTENTE)
-    print("\n1. Consultando estado inicial de la caja...")
-    res_estado = requests.get(f"{BASE_URL}/estado")
-    estado_data = res_estado.json()
-    print(f"   [INFO] Estado actual: {estado_data['estado']} - {estado_data['mensaje']}")
-
-    if estado_data['estado'] == 'BLOQUEADO':
-        print("   [!] La caja ya está abierta. CIÉRRELA manualmente antes de correr el test.")
-        return
-
-    # 2. Abrir Caja
-    print("\n2. Abriendo caja con $10.000...")
-    res_abrir = requests.post(f"{BASE_URL}/abrir", json={
+    # 1. TEST: Apertura Duplicada
+    print("\n1. Intentando abrir una caja cuando ya hay una abierta...")
+    res = requests.post(f"{BASE_CAJA}/abrir", json={
         "id_usuario": ID_USUARIO,
-        "monto_inicial": 10000
+        "monto_inicial": 5000
     })
-    
-    if res_abrir.status_code in [200, 201]:
-        id_caja = res_abrir.json().get('id_caja')
-        print(f"   [OK] Caja abierta ID: {id_caja}")
+    if res.status_code == 400:
+        print(f"   [OK] Bloqueado correctamente: {res.json().get('error')}")
     else:
-        print(f"   [ERROR] {res_abrir.text}")
-        return
+        print(f"   [FALLO] El sistema permitió abrir dos cajas simultáneas.")
 
-    # 3. Registrar un Egreso (Gasto)
-    print("\n3. Registrando gasto de 'Gas' por $5.000...")
-    res_egreso = requests.post(f"{BASE_URL}/egreso", json={
+    # 2. TEST: Egreso Inválido (Monto negativo)
+    print("\n2. Intentando registrar egreso negativo...")
+    res = requests.post(f"{BASE_CAJA}/egreso", json={
         "id_usuario": ID_USUARIO,
-        "monto": 5000,
-        "descripcion": "Cilindro de gas 15kg",
+        "monto": -1000,
+        "descripcion": "Robo fantasma",
+        "categoria": "VARIOS"
+    })
+    if res.status_code == 400:
+        print(f"   [OK] Egreso negativo rechazado.")
+    else:
+        print(f"   [FALLO] Se aceptó un egreso negativo.")
+
+    # 3. TEST: Registro de Egreso Exitoso
+    print("\n3. Registrando egreso válido ($2.000 para pan)...")
+    res_eg = requests.post(f"{BASE_CAJA}/egreso", json={
+        "id_usuario": ID_USUARIO,
+        "monto": 2000,
+        "descripcion": "Compra de pan",
         "categoria": "INSUMOS"
     })
-    
-    if res_egreso.status_code == 201:
-        print("   [OK] Egreso registrado correctamente.")
-    else:
-        print(f"   [ERROR] {res_egreso.text}")
+    if res_eg.status_code == 201:
+        print(f"   [OK] Egreso registrado en la sesión actual.")
 
-    # 4. Cerrar Caja con Arqueo
-    # Lógica: Iniciamos con 10k, gastamos 5k -> Debería haber 5k.
-    # Vamos a decir que contamos 4k para forzar una diferencia de -1k.
-    print("\n4. Cerrando caja (Arqueo físico: $4.000)...")
-    res_cerrar = requests.post(f"{BASE_URL}/cerrar", json={
+    # 4. TEST: Bloqueo de Cierre por Venta Pendiente
+    print("\n4. Creando venta PENDIENTE y tratando de cerrar caja...")
+    # Abrimos una cuenta nueva (Mesa 5) pero NO la pagamos
+    res_v = requests.post(f"{BASE_VENTAS}/", json={
         "id_usuario": ID_USUARIO,
-        "efectivo_fisico": 4000,
-        "observaciones": "Test de descuadre intencional"
+        "cliente": "Mesa 5 - Olvidada",
+        "productos": [{"id_producto": 1, "cantidad": 1}]
+    })
+    
+    # Intentamos cerrar la caja
+    res_cierre = requests.post(f"{BASE_CAJA}/cerrar", json={
+        "id_usuario": ID_USUARIO,
+        "efectivo_fisico": 10000
+    })
+    if res_cierre.status_code == 400:
+        print(f"   [OK] CIERRE BLOQUEADO: {res_cierre.json().get('detalle')}")
+        print("   [INFO] El blindaje detectó la venta pendiente exitosamente.")
+    else:
+        print(f"   [FALLO] ¡La caja se cerró con ventas pendientes!")
+
+    # 5. TEST: Cuadratura Final (Flujo Limpio)
+    print("\n5. Resolviendo pendiente y ejecutando cierre final...")
+    # Primero pagamos la venta pendiente para liberar la caja
+    id_v_pendiente = res_v.json().get('id_venta')
+    requests.post(f"{BASE_VENTAS}/pagar", json={
+        "id_usuario": ID_USUARIO, "id_venta": id_v_pendiente, "forma_pago": "EFECTIVO"
     })
 
-    if res_cerrar.status_code == 200:
-        data = res_cerrar.json()
-        print(f"   [OK] Caja cerrada.")
-        print(f"   [DATA] Esperado: {data['esperado']} | Diferencia: {data['diferencia']}")
-    else:
-        print(f"   [ERROR] {res_cerrar.text}")
-
-    # 5. Verificar Historial (Panel Admin)
-    print("\n5. Verificando persistencia en Historial Administrativo...")
-    res_historial = requests.get(f"{BASE_URL}/historial")
-    if res_historial.status_code == 200:
-        ultima_caja = res_historial.json()[0] # La primera es la más reciente
-        print(f"   [OK] Última caja en historial ID: {ultima_caja['id']} | Estado: {ultima_caja['estado']}")
-    else:
-        print("   [ERROR] No se pudo obtener el historial.")
+    # Ahora cerramos con cuadratura
+    # Supongamos: Inicial(10.000) + Venta1(4.500) + Venta2(1.500 aprox) - Egreso(2.000)
+    # Enviamos un monto físico para ver la diferencia
+    res_final = requests.post(f"{BASE_CAJA}/cerrar", json={
+        "id_usuario": ID_USUARIO,
+        "efectivo_fisico": 14000,
+        "observaciones": "Test final de jornada"
+    })
+    
+    if res_final.status_code == 200:
+        data = res_final.json().get('data')
+        print(f"   [ÉXITO] Caja cerrada correctamente.")
+        print(f"   - Saldo Esperado: ${data['esperado']}")
+        print(f"   - Saldo Físico: ${data['fisico']}")
+        print(f"   - Diferencia: ${data['diferencia']}")
 
 if __name__ == "__main__":
-    probar_caja()
+    ejecutar_test_caja()

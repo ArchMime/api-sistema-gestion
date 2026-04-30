@@ -75,28 +75,38 @@ class ProductoService:
     def crear_o_actualizar_producto(id_usuario, datos):
         try:
             codigo = datos.get('codigo_producto')
-            # Validación básica de datos requeridos
-            if not datos.get('nombre_producto') or not datos.get('precio_producto'):
-                return {"error": "Nombre y precio son obligatorios"}, 400
+            nombre = datos.get('nombre_producto')
+            precio = datos.get('precio_producto')
+            categoria_id = datos.get('categoria_id')
+
+            # 1. Validación de campos obligatorios
+            if not nombre or precio is None or not categoria_id:
+                return {"error": "Nombre, precio y categoría son obligatorios"}, 400
+
+            # 2. Verificar que la categoría exista (Evita error de llave foránea)
+            if not Categoria.query.get(categoria_id):
+                return {"error": f"La categoría con ID {categoria_id} no existe"}, 404
 
             producto = Producto.query.get(codigo) if codigo else None
 
             if producto:
-                producto.nombre_producto = datos.get('nombre_producto', producto.nombre_producto)
-                producto.precio_producto = datos.get('precio_producto', producto.precio_producto)
+                # --- MODO EDICIÓN ---
+                producto.nombre_producto = nombre
+                producto.precio_producto = precio
                 producto.descripcion_producto = datos.get('descripcion_producto', producto.descripcion_producto)
                 producto.formato_producto = datos.get('formato_producto', producto.formato_producto)
-                producto.categoria_id = datos.get('categoria_id', producto.categoria_id)
+                producto.categoria_id = categoria_id
                 if 'activo' in datos:
                     producto.activo = datos['activo']
                 accion = "EDITAR_PRODUCTO"
             else:
+                # --- MODO CREACIÓN ---
                 producto = Producto(
-                    nombre_producto=datos['nombre_producto'],
-                    precio_producto=datos['precio_producto'],
+                    nombre_producto=nombre,
+                    precio_producto=precio,
                     descripcion_producto=datos.get('descripcion_producto'),
                     formato_producto=datos.get('formato_producto'),
-                    categoria_id=datos['categoria_id'],
+                    categoria_id=categoria_id,
                     activo=True
                 )
                 db.session.add(producto)
@@ -104,6 +114,7 @@ class ProductoService:
 
             db.session.flush()
 
+            # 3. Registro en Auditoría
             log = Auditoria(
                 usuario_id=id_usuario,
                 accion=accion,
@@ -112,13 +123,15 @@ class ProductoService:
             )
             db.session.add(log)
             db.session.commit()
+            
             return {"status": "ok", "id": producto.codigo_producto}, 200
 
         except SQLAlchemyError as e:
             db.session.rollback()
             return {"error": "Error de base de datos al gestionar producto", "detalle": str(e)}, 500
-        except KeyError as e:
-            return {"error": f"Falta el campo obligatorio: {str(e)}"}, 400
+        except Exception as e:
+            db.session.rollback()
+            return {"error": "Error inesperado", "detalle": str(e)}, 500
 
     @staticmethod
     def set_estado_producto(id_usuario, codigo_producto, estado=False):
@@ -142,3 +155,32 @@ class ProductoService:
         except SQLAlchemyError:
             db.session.rollback()
             return {"error": "Error al cambiar el estado del producto"}, 500
+
+    @staticmethod
+    def obtener_categorias():
+        return Categoria.query.all()
+
+    @staticmethod
+    def obtener_todo_el_menu():
+        """Formato optimizado para la PWA (Solo activos)"""
+        productos = Producto.query.filter_by(activo=True).all()
+        return [{
+            "id": p.codigo_producto,
+            "nombre": p.nombre_producto,
+            "precio": p.precio_producto,
+            "formato": p.formato_producto,
+            "categoria": p.categoria.nombre
+        } for p in productos]
+
+    @staticmethod
+    def obtener_catalogo_maestro():
+        """Formato detallado para el Panel Admin (Incluye inactivos)"""
+        productos = Producto.query.all()
+        return [{
+            "id": p.codigo_producto,
+            "nombre": p.nombre_producto,
+            "precio": p.precio_producto,
+            "activo": p.activo,
+            "categoria_id": p.categoria_id,
+            "categoria_nombre": p.categoria.nombre
+        } for p in productos]
